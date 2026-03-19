@@ -25,14 +25,14 @@
 
                 <h3>Notes</h3>
                 <div class="alert alert-light border">
-                    {{ archive.notes|safe }}
+                    {{ archive.notes }}
                 </div>
 
                 <hr>
 
-                <h3>Archived Content (Vulnerable to XSS)</h3>
+                <h3>Archived Content</h3>
                 <div class="border p-3 bg-white">
-                    {{ archive.content|safe }}
+                    {{ archive.content }}
                 </div>
             </div>
             <div class="card-footer">
