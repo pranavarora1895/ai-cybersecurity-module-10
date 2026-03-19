@@ -3,11 +3,11 @@ from datetime import timezone
 
 import jwt
 import requests
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
-from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -37,20 +37,15 @@ def dashboard(request):
 
 @login_required
 def generate_token(request):
-    SECRET = "do_not_share_this"
-
     payload = {
         "user_id": request.user.id,
         "username": request.user.username,
         "exp": datetime.datetime.now(timezone.utc) + datetime.timedelta(days=1),
     }
 
-    # jwt.encode returns a string in PyJWT >= 2.0.0
-    token = jwt.encode(payload, SECRET, algorithm="HS256")
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
-    return JsonResponse(
-        {"token": token, "note": "This token was signed with a hardcoded secret!"}
-    )
+    return JsonResponse({"token": token})
 
 
 @login_required
