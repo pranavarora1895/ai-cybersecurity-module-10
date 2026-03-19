@@ -96,13 +96,13 @@ def add_archive(request):
 
 @login_required
 def view_archive(request, archive_id):
-    archive = get_object_or_404(Archive, pk=archive_id)
+    archive = get_object_or_404(Archive, pk=archive_id, user=request.user)
     return render(request, "archiver/view_archive.html", {"archive": archive})
 
 
 @login_required
 def edit_archive(request, archive_id):
-    archive = get_object_or_404(Archive, pk=archive_id)
+    archive = get_object_or_404(Archive, pk=archive_id, user=request.user)
 
     if request.method == "POST":
         archive.notes = request.POST.get("notes")
@@ -115,7 +115,7 @@ def edit_archive(request, archive_id):
 
 @login_required
 def delete_archive(request, archive_id):
-    archive = get_object_or_404(Archive, pk=archive_id)
+    archive = get_object_or_404(Archive, pk=archive_id, user=request.user)
 
     if request.method == "POST":
         archive.delete()
@@ -236,7 +236,7 @@ def export_summary(request):
 
 @login_required
 def enrich_archive(request, archive_id):
-    archive = get_object_or_404(Archive, pk=archive_id)
+    archive = get_object_or_404(Archive, pk=archive_id, user=request.user)
     llm_response = None
 
     if request.method == "POST":
