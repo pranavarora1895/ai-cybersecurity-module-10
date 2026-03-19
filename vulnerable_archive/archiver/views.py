@@ -3,6 +3,7 @@ from datetime import timezone
 
 import ipaddress
 import logging
+import os
 import re
 from urllib.parse import urlparse
 
@@ -246,47 +247,40 @@ def ask_database(request):
     )
 
 
+EXPORT_BASE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exported_summaries"
+)
+
+
 @login_required
 def export_summary(request):
     if request.method == "POST":
         topic = request.POST.get("topic")
-        filename_hint = request.POST.get("filename_hint")
+        filename_hint = request.POST.get("filename_hint", "summary")
 
-        # Prompt for LLM to generate summary content
         content_prompt = f"Write a short summary about: {topic}"
         summary_content = query_llm(content_prompt)
 
-        # Prompt for LLM to determine filename
-        path_prompt = f"""
-        Generate a filename for a summary about '{topic}'.
-        The user suggested: '{filename_hint}'.
-        Return ONLY the full file path.
-        Base directory is: ./exported_summaries/
-        """
-        file_path = query_llm(path_prompt).strip()
+        safe_filename = re.sub(r"[^\w\-.]", "_", filename_hint)[:100]
+        if not safe_filename.endswith(".txt"):
+            safe_filename += ".txt"
 
-        # Clean up if LLM wraps in quotes or code blocks
-        if "```" in file_path:
-            import re
+        file_path = os.path.join(EXPORT_BASE_DIR, safe_filename)
+        resolved_path = os.path.realpath(file_path)
 
-            match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", file_path, re.DOTALL)
-            if match:
-                file_path = match.group(1).strip()
-            else:
-                # Fallback if regex fails or structure is weird
-                parts = file_path.split("```")
-                if len(parts) > 1:
-                    file_path = parts[1].strip()
-
-        file_path = file_path.strip("'\"")
+        if not resolved_path.startswith(os.path.realpath(EXPORT_BASE_DIR)):
+            messages.error(request, "Invalid filename: path traversal detected.")
+            return render(request, "archiver/export_summary.html")
 
         try:
-            with open(file_path, "w") as f:
+            os.makedirs(EXPORT_BASE_DIR, exist_ok=True)
+            with open(resolved_path, "w") as f:
                 f.write(summary_content)
 
-            messages.success(request, f"Summary written to: {file_path}")
-        except Exception as e:
-            messages.error(request, f"File Write Error: {str(e)}")
+            messages.success(request, f"Summary written to: {safe_filename}")
+        except Exception:
+            logger.exception("Failed to write export summary")
+            messages.error(request, "Failed to write summary file.")
 
     return render(request, "archiver/export_summary.html")
 
