@@ -131,15 +131,10 @@ def search_archives(request):
     results = []
 
     if query:
-        sql = f"SELECT archiver_archive.*, auth_user.username FROM archiver_archive JOIN auth_user ON archiver_archive.user_id = auth_user.id WHERE archiver_archive.user_id = {request.user.id} AND title LIKE '%{query}%'"
-
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(sql)
-                columns = [col[0] for col in cursor.description]
-                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        except Exception as e:
-            messages.error(request, f"SQL Error: {str(e)}")
+        results = Archive.objects.filter(
+            user=request.user,
+            title__icontains=query,
+        ).select_related("user").order_by("-created_at")
 
     return render(request, "archiver/search.html", {"results": results, "query": query})
 
