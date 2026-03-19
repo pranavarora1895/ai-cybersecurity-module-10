@@ -134,8 +134,9 @@ def add_archive(request):
                 )
                 messages.success(request, "URL archived successfully!")
                 return redirect("archive_list")
-            except Exception as e:
-                messages.error(request, f"Failed to archive URL: {str(e)}")
+            except Exception:
+                logger.exception("Failed to archive URL")
+                messages.error(request, "Failed to archive the URL. Please check the URL and try again.")
 
     return render(request, "archiver/add_archive.html")
 
