@@ -184,6 +184,12 @@ def search_archives(request):
     return render(request, "archiver/search.html", {"results": results, "query": query})
 
 
+DANGEROUS_SQL_PATTERNS = re.compile(
+    r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE|ATTACH)\b",
+    re.IGNORECASE,
+)
+
+
 @login_required
 def ask_database(request):
     answer = None
@@ -191,41 +197,47 @@ def ask_database(request):
     user_input = request.POST.get("prompt", "")
 
     if request.method == "POST" and user_input:
-        # Schema info for the LLM
         schema_info = """
         Table: archiver_archive
         Columns: id, title, url, content, notes, created_at, user_id
         """
 
         system_prompt = f"""
-        You are a SQL expert. Convert the user's natural language query into a raw SQLite SQL query.
+        You are a SQL expert. Convert the user's natural language query into a READ-ONLY SQLite SELECT query.
         The table name is 'archiver_archive'.
+        You MUST only generate SELECT statements. Never generate DROP, DELETE, UPDATE, INSERT, ALTER, or any other mutating statement.
+        You MUST always include a WHERE clause filtering by user_id = {request.user.id}.
         Do not explain. Return ONLY the SQL query.
-        Current User ID: {request.user.id}
         Schema:
         {schema_info}
         """
 
-        # Get SQL from LLM
         sql_query = query_llm(user_input, system_instruction=system_prompt).strip()
 
-        # Clean up markdown code blocks if present
         if "```sql" in sql_query:
             sql_query = sql_query.split("```sql")[1].split("```")[0].strip()
         elif "```" in sql_query:
             sql_query = sql_query.split("```")[1].strip()
 
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(sql_query)
-                if cursor.description:
-                    columns = [col[0] for col in cursor.description]
-                    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                    answer = results
-                else:
-                    answer = "Query executed successfully (no results returned)."
-        except Exception as e:
-            answer = f"Error executing SQL: {str(e)}"
+        if not sql_query.strip().upper().startswith("SELECT"):
+            answer = "Only SELECT queries are allowed."
+        elif DANGEROUS_SQL_PATTERNS.search(sql_query):
+            answer = "Query rejected: contains disallowed SQL operations."
+        else:
+            try:
+                from django.db import connection
+
+                with connection.cursor() as cursor:
+                    cursor.execute(sql_query)
+                    if cursor.description:
+                        columns = [col[0] for col in cursor.description]
+                        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                        answer = results
+                    else:
+                        answer = "Query executed successfully (no results returned)."
+            except Exception:
+                logger.exception("Error executing LLM-generated SQL")
+                answer = "An error occurred while executing the query."
 
     return render(
         request,
