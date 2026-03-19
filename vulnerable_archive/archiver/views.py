@@ -1,6 +1,11 @@
 import datetime
 from datetime import timezone
 
+import ipaddress
+import logging
+import re
+from urllib.parse import urlparse
+
 import jwt
 import requests
 from django.conf import settings
@@ -10,6 +15,47 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+
+logger = logging.getLogger(__name__)
+
+ALLOWED_SCHEMES = {"http", "https"}
+
+BLOCKED_IP_RANGES = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),  # AWS metadata endpoint
+    ipaddress.ip_network("0.0.0.0/8"),
+]
+
+
+def is_safe_url(url):
+    """Validate that a URL is safe to fetch (not targeting internal/private resources)."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in ALLOWED_SCHEMES:
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    try:
+        import socket
+
+        resolved_ip = socket.getaddrinfo(hostname, None)[0][4][0]
+        ip = ipaddress.ip_address(resolved_ip)
+        for blocked in BLOCKED_IP_RANGES:
+            if ip in blocked:
+                return False
+    except (socket.gaierror, ValueError):
+        return False
+
+    return True
 
 from .llm_utils import query_llm
 from .models import Archive
@@ -61,8 +107,12 @@ def add_archive(request):
         notes = request.POST.get("notes")
 
         if url:
+            if not is_safe_url(url):
+                messages.error(request, "URL is not allowed (private/internal addresses are blocked).")
+                return render(request, "archiver/add_archive.html")
+
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=10, allow_redirects=False)
                 title = "No Title Found"
                 if "<title>" in response.text:
                     try:
